@@ -1,0 +1,927 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Word Fuse</title>
+<style>
+  :root { --bg: #14121f; --panel: #241f3a; --ink: #fff; --dim: #b9b2d8; --gold: #ffd23f; --ok: #45e08a; --bad: #ff5468; }
+  html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
+  body { background: radial-gradient(700px 500px at 50% 40%, #3a2a66, transparent 70%), var(--bg); color: var(--ink);
+         font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; user-select: none; -webkit-user-select: none; }
+  #app { height: 100%; display: flex; flex-direction: column; gap: 8px; max-width: 820px; margin: 0 auto; box-sizing: border-box;
+         padding: max(10px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+  header { display: flex; align-items: center; gap: 10px; min-height: 40px; }
+  header h1 { margin: 0; font-size: 20px; white-space: nowrap; } header h1 b { color: var(--gold); }
+  #status { color: var(--dim); font-weight: 700; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #name { width: 120px; height: 36px; margin-left: auto; flex: none; border-radius: 10px; border: 1px solid #ffffff33; background: #ffffff14; color: #fff; padding: 0 10px; font: inherit; font-size: 16px; box-sizing: border-box; }
+  #stage { position: relative; flex: 1; min-height: 0; }
+  #cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  #alpha { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; align-items: center; font-size: 11px; font-weight: 800; }
+  #alpha i { font-style: normal; width: 17px; height: 20px; line-height: 20px; text-align: center; border-radius: 4px; background: #ffffff10; color: #ffffff55; }
+  #alpha i.on { background: var(--gold); color: #2a1f00; }
+  #alpha span { color: var(--dim); font-weight: 700; margin-left: 6px; }
+  #row { display: flex; gap: 8px; }
+  #word { flex: 1; min-width: 0; height: 52px; border-radius: 14px; border: 2px solid #ffffff33; background: #ffffff12; color: #fff; padding: 0 14px; font: 800 22px system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase; box-sizing: border-box; outline: none; }
+  #word:focus { border-color: #ffffff66; }
+  #word::placeholder { text-transform: none; letter-spacing: 0; font-weight: 600; font-size: 17px; color: #ffffff66; }
+  #word.turn { border-color: var(--gold); background: #ffd23f1a; }
+  #word.bad { border-color: var(--bad); animation: shake .3s; }
+  @keyframes shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+  #go { width: 84px; height: 52px; border: 0; border-radius: 14px; background: var(--gold); color: #2a1f00; font: 900 18px system-ui, sans-serif; cursor: pointer; flex: none; }
+  #go:disabled { opacity: .35; }
+  #hint { text-align: center; font-size: 13px; color: var(--dim); min-height: 18px; }
+  #hint.bad { color: var(--bad); font-weight: 700; } #hint.ok { color: var(--ok); font-weight: 700; }
+  #net { text-align: center; font-size: 12px; color: var(--dim); opacity: .8; min-height: 16px; }
+  #over { position: fixed; inset: 0; display: grid; place-items: center; background: #0a0812cc; }
+  #over[hidden] { display: none; }
+  .card { width: min(380px, calc(100vw - 32px)); max-height: 86vh; overflow: auto; padding: 20px; border-radius: 18px; background: var(--panel); border: 2px solid #ffffff2a; box-sizing: border-box; }
+  .card h2 { margin: 0 0 6px; font-size: 22px; color: var(--gold); }
+  .card h3 { margin: 14px 0 4px; font-size: 14px; color: #ffb3c8; }
+  .card ol { margin: 0; padding-left: 24px; font-size: 14px; }
+  .card li span { float: right; font-variant-numeric: tabular-nums; }
+  .card li.me { color: var(--gold); font-weight: 700; }
+  .card p { margin: 10px 0; font-size: 13px; opacity: .85; }
+  button.again { width: 100%; min-height: 48px; border: 0; border-radius: 12px; background: var(--gold); color: #2a1f00; font: 800 17px system-ui, sans-serif; cursor: pointer; }
+  @media (max-width: 520px) { #name { width: 100px; } header h1 { font-size: 18px; } #alpha { gap: 2px; } #alpha i { width: 14px; font-size: 10px; } #alpha span { display: none; } }
+</style>
+<script src="https://cdn.multiplayeragent.com/sdk/mp.global.js"></script>
+</head>
+<body>
+<div id="app">
+  <header><h1>Word <b>Bomb</b></h1><span id="status"></span><input id="name" maxlength="16" placeholder="Your name" aria-label="Your name"></header>
+  <div id="stage"><canvas id="cv"></canvas></div>
+  <div id="alpha"></div>
+  <div id="row"><input id="word" maxlength="24" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" placeholder="Type a word…" aria-label="Your word"><button id="go">GO</button></div>
+  <div id="hint"></div>
+  <div id="net">Connecting…</div>
+</div>
+<div id="over" hidden><div class="card">
+  <h2 id="title">Game over</h2><p id="best"></p>
+  <ol id="results"></ol>
+  <h3>Most wins</h3><ol id="board"><li>Loading…</li></ol>
+  <p id="next"></p>
+  <button class="again" id="again">Play again</button>
+</div></div>
+<script>
+/* ═══ WORD LIST (used by the main script below) ═════════════════════════════════════════
+ * Every word the game accepts, lowercase, 3–8 letters. Plurals don't need listing: isWord()
+ * also takes a listed word + "s" / "es" / "ies". The prompts on the bomb ("ing", "tr") are
+ * picked from letters that appear in enough of these words. Add or remove words freely.
+ */
+const WORDS = `
+ace act add ado aft age ago aid aim air ale all amp and ant any ape apt arc are ark arm art ash ask asp ate awe
+awl axe aye bad bag ban bar bat bay bed bee beg bet bib bid big bin bit boa bob bog boo bow box boy bud bug bun
+bus but buy bye cab cad cam can cap car cat cod cog cop cot cow coy cry cub cud cue cup cur cut dab dad dam day
+den dew did die dig dim din dip doe dog don dot dry dub dud due dug dun duo dye ear eat ebb eel egg ego elf elk
+elm emu end era eve ewe eye fad fan far fat fax fed fee few fib fig fin fir fit fix flu fly foe fog for fox fry
+fun fur gab gag gal gap gas gel gem get gig gin gnu god got gum gun gut guy gym had ham has hat hay hem hen her
+hew hey hid him hip his hit hob hog hop hot how hub hue hug hum hut ice icy ill imp ink inn ion ire irk its ivy
+jab jam jar jaw jay jet jig job jog jot joy jug jut keg ken key kid kin kit lab lad lag lap law lay lea led leg
+let lid lie lip lit lob log lot low lug mad man map mar mat maw may men met mew mid mix mob mod mom mop mow mud
+mug mum nab nag nap nay net new nib nil nip nit nod nor not now nun nut oak oar oat odd ode off oft ohm oil old
+one opt orb ore our out owe owl own pad pal pan par pat paw pay pea peg pen pep per pet pew pie pig pin pit ply
+pod pop pot pro pry pub pug pun pup put rag ram ran rap rat raw ray red rib rid rig rim rip rob rod roe rot row
+rub rug rum run rut rye sac sad sag sap sat saw say sea see set sew she shy sin sip sir sis sit six ski sky sly
+sob sod son sow soy spa spy sty sub sue sum sun sup tab tad tag tan tap tar tax tea tee ten the thy tic tie tin
+tip toe tog tom ton too top tot tow toy try tub tug tun two urn use van vat vet vex via vie vow wad wag war was
+wax way web wed wee wet who why wig win wit woe wok won woo wow yak yam yap yaw yea yen yes yet yew yin you yum
+zap zed zen zip zoo able ache acid acne acre aged aide airy ajar akin alas ally alms aloe also alto alum amen
+amid anew ante apex arch area aria arid army ashy atom atop aunt aura auto avid away awed awry axis axle babe
+baby back bade bail bait bake bald bale ball balm band bane bang bank bard bare bark barn base bash bask bass
+bath bead beak beam bean bear beat beef been beep beet bell belt bend bent best beta bias bide bike bile bill
+bind bird bite blab bled blew blip blob bloc blog blot blow blue blur boar boat bode body boil bold bolt bomb
+bond bone bony book boom boon boot bore born boss both bout bowl boxy brag bran brat bred brew brim brow buck
+buff bulb bulk bull bump bunk buoy burn burp bury bush bust busy buzz byte cafe cage cake calf call calm came
+camp cane cape card care cart case cash cask cast cave cell cent chap chat chef chew chin chip chop chug chum
+cite city clad clam clan clap claw clay clip clog clot club clue coal coat coax code coil coin cola cold colt
+comb come cone cook cool coop cope copy cord core cork corn cost cosy coup cove cozy crab crew crib crop crow
+crux cube cuff cult curb curd cure curl cute daft dais dame damp dare dark darn dart dash data date dawn daze
+dead deaf deal dean dear debt deck deed deem deep deer deft defy deli dell demo dent deny desk dial dice died
+diet dill dime dine ding dire dirt disc dish disk diva dive dock dole doll dome done doom door dose dote dour
+dove down doze dozy drab drag dram draw drew drip drop drum dual duck duct dude duel duet duke dull duly dumb
+dump dune dunk dupe dusk dust duty dyed each earl earn ease east easy echo edge edgy edit else emit envy epic
+even ever evil exam exit eyed face fact fade fail fair fake fall fame fang fare farm fast fate fawn fear feat
+feed feel feet fell felt fend fern fest feud file fill film find fine fire firm fish fist five fizz flag flap
+flat flaw flax flea fled flee flew flex flip flit flop flow flue flux foal foam foil fold folk fond font food
+fool foot ford fore fork form fort foul four fowl foxy fray free fret frog from fuel full fume fund funk furl
+fury fuse fuss fuzz gain gait gala gale gall game gang gape garb gash gasp gate gave gawk gaze gear geek gene
+gent germ gift gild gill gilt gird girl gist give glad glee glen glib glow glue glum glut gnat gnaw goad goal
+goat goes gold golf gone gong good goof gore gosh gown grab gram gray grew grey grid grim grin grip grit grow
+grub gulf gull gulp gunk guru gush gust hack hail hair half hall halo halt hand hang hard hare harm harp hash
+hate haul have hawk haze hazy head heal heap hear heat heed heel heir held helm help herb herd here hero hide
+high hike hill hilt hind hint hire hiss hive hoax hold hole holy home hone honk hood hoof hook hoop hoot hope
+horn hose host hour howl hued huff huge hula hulk hull hump hung hunk hunt hurl hurt hush husk hymn hype icon
+idea idle idly idol inch info inky into iris iron isle itch item jack jade jail jazz jean jeep jeer jerk jest
+jibe jinx jock join joke jolt jowl judo jump junk jury just jute keel keen keep kelp kept kick kiln kilo kilt
+kind king kink kiss kite kiwi knee knew knit knob knot know lace lack lacy lady laid lain lair lake lamb lame
+lamp land lane lard lark lash lass last late lava lawn laze lazy lead leaf leak lean leap leek leer left lend
+lens lent less lest levy liar lice lick lied lien lieu life lift like lilt lily limb lime limp line link lint
+lion lisp list live load loaf loan lobe lock loft logo loin lone long look loom loon loop loot lord lore lose
+loss lost loud lout love luck lull lump lung lure lurk lush lute lynx lyre mace made maid mail maim main make
+male mall malt mane many mare mark mash mask mass mast mate math maze mead meal mean meat meek meet meld melt
+memo mend menu meow mere mesh mess mice mild mile milk mill mime mind mine mint mire miss mist mite mitt moan
+moat mock mode mold mole molt monk mood moon moor moot mope more moss most moth move much muck muff mule mull
+murk muse mush musk must mute mutt myth nail name nape navy near neat neck need neon nerd nest newt next nice
+nick nine node none nook noon nope norm nose nosy note noun nova nuke null numb oath obey odor ogle ogre oily
+okay omen omit once only onto onus onyx ooze opal open opus oral orca oust oval oven over owed pace pack pact
+page paid pail pain pair pale palm pane pang pant papa pare park part pass past path pave pawn peak peal pear
+peat peck peek peel peep peer pelt perk perm pest pick pier pike pile pill pine pink pint pipe pita pity plan
+play plea pled plod plop plot plow ploy plug plum plus poem poet poke poky pole poll polo pond pony pool poor
+pore pork port pose posh post posy pour pout pram pray prep prey prim prod prom prop prow puck puff pull pulp
+puma pump punk punt puny pure purr push putt quad quay quip quit quiz race rack racy raft rage raid rail rain
+rake ramp rang rank rant rare rash rasp rate rave raze read real ream reap rear redo reed reef reek reel rein
+rely rend rent rest rice rich ride rife rift rile rind ring rink riot ripe rise risk rite road roam roar robe
+rock rode role roll romp roof rook room root rope rose rosy rote rout rove rube ruby rude rued rues ruin rule
+rump rune rung runt ruse rush rust sack safe saga sage said sail sake sale salt same sand sane sang sank sash
+sass sate save sawn scab scan scar seal seam sear seat sect seed seek seem seen seep seer self sell semi send
+sent sewn shed shin ship shoe shoo shop shot show shun shut sick side sift sigh sign silk sill silo silt sine
+sing sink sire site size skew skid skim skin skip slab slam slap slat slaw sled slew slid slim slip slit slot
+slow slug slum slur smog snag snap snip snit snob snot snow snub snug soak soap soar sock soda sofa soft soil
+sold sole solo some song soon soot sore sort soul soup sour sown soya span spar spat spec sped spin spit spot
+spry spud spun spur stab stag star stay stem step stew stir stop stow stub stud stun such suck suds sued suit
+sulk sung sunk sure surf swab swam swan swap swat sway swim swum tack taco tact tail take tale talk tall tame
+tang tank tape tarp tart task taut taxi teal team tear teem teen tell temp tend tent term tern test text than
+that thaw thee them then they thin this thou thud thug thus tick tide tidy tied tier tiff tile till tilt time
+tint tiny tire toad tofu toga toil told toll tomb tome tone tong took tool toot tore torn toss tote tour tout
+town tram trap tray tree trek trim trio trip trod trot true tuba tube tuck tuft tuna tune turf turn tusk tutu
+twig twin type typo ugly undo unit unto upon urge used user vain vale vane vary vase vast veal veer veil vein
+vend vent verb very vest veto vial vibe vice view vile vine visa void volt vote wade waft wage waif wail wait
+wake walk wall wand wane want ward ware warm warn warp wart wary wash wasp watt wave wavy waxy weak wean wear
+weed week weep weld well welt went wept were west wham what when whet whey whim whip whir whiz whoa whom wick
+wide wife wild will wilt wily wind wine wing wink wipe wire wiry wise wish wisp with woke wolf wont wood woof
+wool word wore work worm worn wove wrap wren writ yank yard yarn yawn yeah year yell yelp yeti yoga yolk your
+yowl yuck zany zeal zero zest zinc zing zone zoom aback abbey abort about above abuse acorn acted actor acute
+adapt added adieu admit adopt adore adult affix after again agent agile aglow agree ahead aided aimed aired
+aisle alarm album alert algae alien alike alive alley allow aloft alone along alter amaze amber amend among
+ample amuse angel anger angle angry angst ankle anvil apart apple apply apron arbor arena argue arise armor
+aroma arrow ascot ashen aside asked asset aster atlas atone attic audio audit avail avert avoid await awake
+award aware awful axiom bacon badge badly bagel baggy baked baker baler based basic basin batch baton bayou
+beach beard beast beefy begin being belly below bench beret berry bingo birth bison black blade blame bland
+blank blast blaze bleak bleed blend bless blind blink bloat block blond blood bloom blown bluff blunt blurb
+blurt blush board boast bonus boost booth bored bossy botch bough bound boxer brain brake brand brass brave
+brawl bread break breed brick bride brief brine bring brink brisk broad broil broke brook broom broth brown
+brunt brush buddy budge buggy bugle build built bulky bully bunch bunny burly burst buyer cabin cable cache
+cadet camel candy caner canoe caper cared cargo carol carry carve caste catch cater cause cedar cello chain
+chair chalk chant charm chart chase cheap cheat check cheek cheer chess chest chick chief child chili chill
+china chirp choir chomp chord chore chose chunk cider cinch civic civil claim clamp clank clash clasp class
+clean clear clerk click cliff climb cling clock close cloth cloud clove clown cluck clump coach coast cocoa
+coder colon color comet comic coral couch cough could count court cover crack craft crane crank crash crate
+crawl crazy creak cream creek creep crepe crest crimp crisp croak crook cross crowd crown crude crumb crush
+crust crypt cubic cumin cured curio curly curve cutie cycle daily dairy daisy dance dandy dared dated dealt
+debit debut decal decay decoy deity delay delta dense depot depth diary digit dimly dined diner dirty disco
+ditch ditto diver dizzy dodge dogma doing donor donut doted doubt dough dowel dozed dozen draft drain drama
+drank drape drawl drawn dread dream dress dried drift drill drink drive droll drone drool droop drown dryer
+dunce dusty dwarf eager eagle early earth eased easel eaten eater ebony eerie egret eight elbow elder elect
+elfin elite elope elude email embed ember empty enact ended endow enemy enjoy enter entry epoch equal equip
+erase error erupt essay evade event every evict evoke exact exalt excel exile exist expel extra fable faced
+facet faded faint fairy faith false fancy fared fault favor feast feign fence ferry fetch fever fiber field
+fiend fiery fifth fifty fight final finch fined fired first flair flake flaky flame flank flare flash flask
+fleck fleet flick fling flint flirt float flock flood floor flora floss flour fluid flung flush flute foamy
+focus foggy folly foray force forge forgo forth forty forum found frame freak fresh fried frill frisk frond
+front frost froth frown froze fruit fudge fully funny fuzzy gamer gaudy gauge gazed gecko genre ghost giant
+giddy given gizmo glare glass glaze gleam glide glint gloat globe gloom glory gloss glove gnome going goofy
+goose gorge gouge gourd grace grade grain grand grant grape graph grasp grass grate grave gravy graze great
+greed green greet grief grill grimy grind gripe groan groom gross group grove growl grown gruel gruff grunt
+guard guess guest guide guilt guise gulch gully gumbo gummy gusty habit hairy handy happy hardy harsh haste
+hasty hatch hated hater haunt haven hazel heart heavy hedge heist helix hello heron hiker hinge hippo hired
+hitch hobby hoist holly honey honor hoped horse hotel hotly hound house hover howdy human humid humor hunch
+hurry husky hyena icing ideal idiom igloo image imply inbox index inept inert infer ingot inlet inner input
+inter irate irony islet issue itchy ivory jaunt jazzy jelly jerky jewel jiffy joint joked joker jolly judge
+juice juicy jumbo jumpy karma kayak kebab kiosk knack knead kneel knelt knife knock known koala kudos label
+labor ladle lance lapse large laser lasso latch later laugh layer leafy leapt learn lease least leave ledge
+legal lemon level lever light liked liken lilac limbo limit lined linen liner lingo lived liver llama lobby
+local lodge lofty logic loose lorry loser lotus loved lover lower loyal lucid lucky lumpy lunar lunch lunge
+lurch lured lying macaw madam magic major maker mango mania manor maple march marsh mason match mated maxim
+mayor medal media melon mercy merit merry messy metal meter midst might miler mince mined miner minor minus
+mirth miser mixer mocha model modem moist molar moldy money month moose moral mossy motif motor motto mound
+mount mourn mouse mouth moved mover movie mower muddy mulch mural murky mushy music musty nacho naive named
+nanny nasty naval nerdy nerve never newer nifty night ninja noble noise nomad north nosed notch noted novel
+nudge nurse nutty nylon oasis occur ocean oddly offer often oiled olive omega onion onset opera optic orate
+orbit order organ other otter ought ounce outdo outer overt owing owner oxide ozone paced paddy paged paint
+paled panda panel panic pansy paper pared parka party pasta paste patch patio pause peace peach pearl pecan
+pedal penne penny perch peril perky pesky pesto petal petty phase phone phony photo piano picky piece piled
+pilot pinch pined pinky piper pitch pivot pixel pizza place plaid plain plane plank plant plate plaza plead
+pleat plume plump plunk plush point poked polar polka pooch poppy porch posed poser pouch pound power prank
+preen press price pride prime print prior prism prize probe prone prong proof prose proud prove prowl prune
+pulse punch pupil puppy purge purse quack quail quake qualm quart quasi queen quell query quest quick quiet
+quilt quirk quite quota quote raced racer radar radio raged rainy raise raked rally ramen ranch range rapid
+rated rater ratio raved raven razor reach react ready realm rebel recap refer reign relax relay relic remix
+renew repay reply resin retro rhino rhyme rider ridge right rigid rinse ripen risen risky rival river rivet
+roast robin robot rocky rodeo rogue roomy rouge rough round route rover rowdy royal rugby ruled ruler rumor
+rural rusty sable sadly saint salad salon salsa salty sandy saner sated satin sauce sauna saved saver savor
+savvy scald scale scamp scant scarf scary scene scent scone scoop scope score scorn scout scowl scrap screw
+scrub scuba sedan seedy seize sense serve setup seven shack shade shady shaft shake shall shame shape shard
+share shark sharp shave shear sheen sheep sheer sheet shelf shell shift shine shiny shirt shock shone shore
+short shout shown showy shred shrub shrug shunt sided siege sieve sight sigma silky silly since sinew singe
+siren sixth sixty sized skate skill skirt skull slack slang slant slash slate sleek sleep sleet slept slice
+slick slide slime sling slope sloth slump slurp smack small smart smash smear smell smile smirk smith smoke
+snack snail snake snare snarl sneak sneer sniff snore snout snowy sober solar soled solid solve sonar sonic
+sorry sound south sower space spade spare spark spawn speak spear speck speed spell spend spent spice spicy
+spike spill spine spire spite splat spoke spook spool spoon spore sport spout spray sprig spurt squad squat
+squid stack staff stage stain stair stake stale stalk stall stamp stand stare stark start stash state stead
+steak steam steel steep steer stent stern stick stiff stile still stilt sting stink stint stock stomp stone
+stood stool stoop storm story stout stove strap straw stray strip strut stuck study stuff stump stung stunk
+stunt style suave sugar suite sulky sunny super surge swamp swarm swear sweat sweep sweet swept swift swing
+swirl swish swoop sword syrup tabby table taboo taffy taint taker tamed tamer tango taped taper tapir tardy
+tares tarot tasty taunt tawny teach tease teddy teeth tempo tenet tense tenth tepid terse thank theme there
+these thick thief thing think third thorn those three threw throw thumb thump thyme tiara tidal tiger tight
+tiled tiler timed timer timid tired title toast today token toned toner tonic tooth topaz topic torch total
+toted totem toter touch tough towel tower trace track trade trail train tramp trash trawl tread treat trend
+trial tribe trick tried trite troll troop trout truce truck truly trunk trust truth tubby tulip tuned tuner
+tweak twice twine twirl twist typed ultra umbra uncle under unify union unite unity until unzip upper upset
+urban usage usher using usual utter vague valid value valve vapor vault vegan venue verse vicar video vigor
+vinyl viola viper viral visit visor vista vital vivid vixen vocal voice voter vouch vowed wacky waded wader
+wafer waged wager wagon waist waltz waste watch water waved waver weary weave wedge weird whack whale wheat
+wheel where which whiff while whine whirl whisk white whole whose widen width wield wince winch windy wiped
+wiper wired wispy witch woken woman woody wordy world worry worse worst worth would wound woven wrath wreck
+wrist write wrong wrote yacht yearn yeast yield young youth yummy absent accent accept access across acting
+action active actual adjust admire advice afraid agency agenda almost always amount anchor animal annual answer
+antler anyone anyway appear archer arctic around arrive artist asleep astern attach attack attend autumn avenue
+badger bakery baking ballet bamboo banana bandit banner barber barely barrel basket batter battle beaten beauty
+beaver became become before behave behind belong better beyond bishop biting bitten bitter blonde boiled boning
+border borrow bottle bottom bought bounce branch breath breeze bridge bright broken bronze bubble bucket budget
+buffet bundle burger burrow butter button bypass cactus camera campus candle canvas caring carpet carrot castle
+casual cattle caught celery cellar cement center cereal chance change chapel charge cheese cherry chorus chosen
+church circle circus citing client closet cobalt coffee coiled collar colony column combat comedy coming common
+cookie copper corner cotton county couple course cousin cowboy coyote crayon create credit cruise custom dancer
+danger daring dating debate decade decide defeat defend degree demand denial dented desert design detail device
+dining dinner direct direst divide doctor dollar domain donkey double dozing dragon drawer driest driver during
+easily easter eating editor effect effort eleven empire enable energy engine enlist enough entire escape estate
+except expert export fabric facing factor failed fairly falcon family famous farmer father fellow fiddle figure
+filing filter finger finish firing flavor flight flower flying foiled follow forest forget formal format fossil
+fourth frozen fruity fusing future galaxy garage garden garlic gather gentle giggle ginger glider global golden
+gopher gotten grease ground growth guitar hailed hammer handed handle happen harbor hating hazard header health
+heated heaven height helmet helped hermit hidden hiding highly hinted hiring hockey holder honest honing hoping
+horror hosing humble hunger hunter hurdle ignore impact import income indoor infant insect insert inside insist
+intent invent island jacket jaguar jailed jersey jigsaw jockey jumped jungle junior kennel kettle kicked kidney
+kindly kitten knight ladder lagoon landed lassie lasted latent latter launch lawyer leader league learnt legend
+lesson letter lifted linear lining liquid listed listen litter little living lizard locker lonely looked losing
+lovely loving luxury magnet mailed making mammal manage manner marble margin marine market master mating matter
+meadow medium melted member memory mental mentor merely method middle mining minted minute mirror misery mitten
+mobile modern molded moment monkey mostly mother motion moving muffin murmur museum musing mutual myself nailed
+narrow nation native natter nature nearby nearly needed needle nephew netted nobody normal nosing notice noting
+number object obtain office online orange orchid origin oxygen oyster paddle palace parade parent paring parked
+parrot pastry patrol patter peanut pencil people pepper period person petted picked pickle picnic pigeon piling
+pillow pining pirate planet played plenty pocket poetry poison police polish posing potato powder praise prefer
+pretty prince prison profit puddle puffin pulled puppet purple pushed puzzle quaint quarry quench quirky quiver
+quoted rabbit racing radish rained raking random rather rating reader really reason record redial reduce region
+relief remain remote rental rented repair repeat report rescue reseat resist rested result retain retina return
+reveal ribbon riddle riding rinsed ripple ritual rocket rodent rolled rotted rotten roving rubber saddle safari
+safety sailed salmon salted sample sandal sander saucer scarce scheme school scroll sealed season seated seater
+second secret select senior series setter settle shadow shower shrimp siding signal silent silver simple singer
+single sinned sister sitars sketch slider slowly smooth snared soccer social socket soiled sorbet sorted speech
+sphere spider spiral splash spoken sponge spread spring sprout square squash squeak squeal squint squire stable
+stater statue steady steals stereo sterna sticky stolen strain strand stream street stress strict stride string
+stripe strong studio submit subtle sudden suffer summer summit sunset supply surely survey switch symbol system
+tablet tackle tailed taking talent tanned target tassel taster tatter teapot teasel teaser teeter temple tenant
+tender tennis tested tester thirst thirty thread threat throat throne ticket tickle tidier tiding tiling tilted
+timber tinder tinier tinsel tinted tiring tissue toggle toiled tolled tomato tongue toning toward travel treaty
+trophy tuning tunnel turkey turned turtle twelve twenty unique united unless unlock update upward useful valley
+velvet vendor violet virtue vision voyage waffle waiter walnut walrus wander wanted warmth warned washed weapon
+weekly weight widely window wining winner winter wiring wisdom within wizard wonder wooden worked worker writer
+yelled yellow zipper zombie zoning ability absence academy account achieve acrobat actress address advance
+against airport already amazing ancient another anxiety anybody apology applaud apricot archive arrange arrival
+article artwork athlete attempt attract average awkward balance balloon bandage banquet bargain battery bearing
+because bedroom believe beneath benefit betting between bicycle billion biscuit blanket blossom brother brownie
+buffalo builder burrito cabinet calcium capital captain caravan cartoon catalog ceiling central century certain
+chamber channel chapter charity checker chicken chimney circuit citizen classic climate clothes cluster coastal
+collect college comfort command comment company compare compass complex concert conduct confirm connect contain
+content contest control cooking costume cottage counter country courage cricket crystal culture curtain cushion
+custard cycling dancing decided deliver density deposit desktop dessert diamond digital dolphin drawing dressed
+driving dynamic eastern economy edition elegant element embrace emerald emotion engaged evening exactly example
+excited explore express extreme factory faculty failure fantasy fashion feather feature fiction finally fishing
+fitness flannel forever fortune forward freedom freight frosted furnace gallery garment general genuine gesture
+getting giraffe glacier glimpse goodbye gorilla grammar granite graphic gravity grocery habitat haircut halfway
+hamster harmony harvest healthy hearing helpful herself highway himself hinting history holiday horizon however
+hundred hunting husband iceberg imagine impress improve include initial inquiry install instant instead jasmine
+journal journey justice kingdom kitchen knuckle lantern largely laundry leather lecture leisure letting liberty
+library lighter limited lobster logical machine mailbox mammoth mansion marshal massive maximum meaning measure
+melting mermaid message million mineral minimum minting miracle mission mixture monster morning mustard mystery
+natural neither netting network nothing nowhere nucleus oatmeal obvious octopus officer opinion orchard organic
+outside overall pancake panther partner passage passion patient pattern payment peacock penguin pension percent
+perfect perhaps petting phantom picture pilgrim pioneer plastic platter popcorn popular portion postage poultry
+poverty premium present pretend prevent primary printer privacy private problem process produce product program
+project promise protect protein provide pudding pumpkin pyramid quality quarter quickly rainbow reading reality
+receive recover reflect regular related release removal replace request reserve respect resting retreat revenge
+reverse rooster routine running sailing sandbox sausage scholar science scratch seating section setting seventy
+several shelter sheriff shortly silence similar sitting sixteen soldier someone special sponsor squeeze stadium
+stomach storage strange stretch student subject succeed success suggest summary sunrise support supreme surface
+surgeon surplus survive suspect sweater teacher tearful theater therapy thought thunder tinting tonight tornado
+tourist traffic trainer trouble trumpet turnout typical uniform unknown unusual upgrade vampire variety vehicle
+venture version veteran victory village vintage virtual visible visitor volcano wealthy weather wedding weekend
+welcome western wetting whisker whistle willing winning without witness worried writing written absolute
+abstract academic accident accurate activity actually addition adorable advanced aircraft alphabet although
+aluminum ambition anything anywhere apparent appetite approach argument armchair assembly athletic attitude
+audience backpack backyard balanced bathroom becoming behavior birthday blizzard bookcase boundary bracelet
+building business calendar campaign campfire capacity cardinal careless carnival carousel casually ceremony
+champion chemical children chipmunk circular climbing clothing colorful complete computer concrete confused
+consider constant continue cupboard customer daughter daylight deadline decision delicate delivery designer
+detailed diagonal dialogue diameter dinosaur director discover distance doghouse doorbell dumpling electric
+elephant emerging entrance envelope equation estimate evidence exchange exercise explorer familiar favorite
+festival fireball firework flamingo football forecast fountain fragment friendly frontier gardener generous
+glorious goldfish graceful grateful guardian handsome hardware heritage historic homework hospital humorous
+identity incident increase indicate industry innocent instance interest kangaroo keyboard landmark language
+laughing lemonade lifetime location magazine magnetic mainland marathon material medicine memorial merchant
+midnight military mosquito mountain movement mushroom national negative northern notebook nowadays numerous
+observer obstacle occasion official operator opposite ordinary organize original outdoors overcome painting
+paradise parallel passport password patience peaceful personal physical pinecone pleasant pleasure plumbing
+position positive possible powerful practice precious presence pressure princess probably producer property
+protocol purchase question raindrop reaction recovery relative remember reminder republic research resource
+response sandwich scissors seashell security sentence separate sequence shoulder sidewalk skeleton snowball
+snowfall software solution somebody somewhat southern specific spelling sprinkle squirrel standard starfish
+stranger strength stunning sunlight sunshine surprise survival swimming symphony teaspoon teenager terrible
+thinking thousand together tomorrow tortoise tracking treasure triangle tropical umbrella universe vacation
+valuable velocity vineyard volcanic weakness whatever whenever wildlife woodland workshop yourself`.trim().split(/\s+/);
+</script>
+<script>
+/* ═══ WORD FUSE · a Multiplayer Agent starter ══════════════════════════════════════════
+ * A ticking bomb passes around a circle of players. On your turn, type a word that contains
+ * the letters on the bomb ("ING", "TR") before it pops. No repeats. Two lives each; use every
+ * letter of the bonus alphabet to earn one back. Last one standing wins. Word, 2–12 players.
+ *
+ * WHERE THINGS ARE (search for the "── " headers):
+ *   CONFIG ........ lives, the fuse, prompt difficulty, bonus letters, bots
+ *   CONNECTION .... MP_CONNECT, joining, the offline room, who is host
+ *   WORDS ......... isWord(), the prompt picker
+ *   GAME (HOST) ... turns, the hidden fuse, checking words, lives, the bots.
+ *                   Only the host writes `game`, `used` and `bt`.
+ *   MY TURN ....... typing (shown to everyone as you type) and submitting a word
+ *   CIRCLE ........ the canvas: players round the table, the bomb, the fuse, the blast
+ *   HUD & RESULTS . status line, bonus letters, results card, leaderboard
+ *   SOUND ......... WebAudio ticks, dings and the boom
+ *
+ * HOW THE MULTIPLAYER WORKS (a relay room: no server code):
+ *   - The game lives in ONE shared field, `game`: {id, v, phase, seats, lives, let, wc, best,
+ *     turn, k, prompt, turnAt, fuseAt, endsAt, last, bang, win}. Only the HOST writes it; `v`
+ *     goes up on every write. `seats` = [[id, name, color], ...] round the circle (bots: "@" ids).
+ *   - `used` = {g, w}: the words already played this game. `bt` = {g, k, s}: what the bot whose
+ *     turn it is has typed so far. Both host-written.
+ *   - The HOST is the lowest sessionId among live players (heartbeat seen in the last 3s). The
+ *     fuse is a timestamp (`fuseAt`, random, at least a few seconds per turn): the host pops the
+ *     bomb when its clock passes it, so a new host carries on with the same bomb.
+ *   - Each player writes its OWN entity: `n`, `c` (name, color), `hb` (heartbeat) and `ty` =
+ *     {g, k, s}: what it is typing on its turn (everyone watches the letters appear).
+ *   - Intents to the host: "word" {g, k, w} (my answer for turn k) and "again". The host checks
+ *     the word (has the letters, in the list, not used) and passes the bomb, or writes why not
+ *     into `last` so the typer sees it.
+ *   - Late arrivals watch and join the next game.
+ *   - ?attract plays offline with bots only (the preview video is recorded from it).
+ *   - Leaderboard "bomb-wins": games won (submitted with "inc"), on the results card.
+ */
+
+// ── CONFIG ──────────────────────────────────────────────────────────────────────────
+const CONFIG = {
+  seats: 6,              // bots fill the circle up to this many players
+  maxSeats: 12,          // more people than this watch until a seat frees up
+  lives: 2,              // lives at the start
+  maxLives: 3,           // the bonus alphabet can't take you above this
+  lobbyMs: 5000,         // countdown before a game
+  boomMs: 2000,          // pause after the bomb pops
+  resultsMs: 11000,      // results card before the next game
+  fuseMin: 9, fuseMax: 20, // seconds a bomb burns (random and hidden)...
+  minTurn: 4,            // ...but every turn gets at least this many seconds
+  promptEasy: 60,        // the first prompts appear in at least this many listed words
+  promptHard: 12,        // later prompts get rarer, down to this many words
+  hardenPerTurn: 2,      // how fast prompts get harder (words fewer per turn played)
+  bonusLetters: "ABCDEFGHIJLMNOPRSTUVWY", // use them all in your words for an extra life (no K Q X Z)
+  botThinkMin: 1500, botThinkMax: 4200, // ms a bot thinks before typing
+  botCps: 7,             // letters a bot types per second
+  botMiss: 0.14,         // chance a bot blunders (a used word or a typo) before answering
+  board: "bomb-wins",
+};
+const BOT_NAMES = ["Wordy", "Lexi", "Scrabbs", "Ink", "Vowel", "Syllabo", "Quill", "Rhyme", "Prose", "Dexter", "Penny", "Atlas"];
+const COLORS = ["#ff6b6b", "#4dabf7", "#ffd43b", "#69db7c", "#da77f2", "#ff922b", "#38d9a9", "#f783ac", "#a9e34b", "#74c0fc", "#e599f7", "#ffa94d"];
+
+// ── CONNECTION ──────────────────────────────────────────────────────────────────────
+// The builder fills these in for this game. Downloaded from GitHub? Put your own pk_ key here.
+const MP_CONNECT = {
+  key: 'pk_REPLACE_ME',
+  room: 'word-fuse',
+  endpoint: 'wss://live.multiplayeragent.com',
+  apiUrl: 'https://api.multiplayeragent.com',
+};
+const ATTRACT = new URLSearchParams(location.search).has("attract");
+
+/** Same shape as the SDK client, kept in this tab: offline play and ?attract. */
+function localRoom() {
+  const id = "local", state = { entities: { players: { [id]: {} } }, shared: {} }, subs = [];
+  let queued = false;
+  const emit = () => { if (!queued) { queued = true; queueMicrotask(() => { queued = false; subs.forEach((f) => f(state)); }); } };
+  const put = (o, k, v) => { if (typeof k === "object") Object.assign(o, k); else o[k] = v; emit(); };
+  return {
+    sessionId: id, state, offline: true,
+    me: { set: (k, v) => put(state.entities.players[id], k, v) },
+    setShared: (k, v) => put(state.shared, k, v),
+    onState: (f) => { subs.push(f); f(state); }, onJoin() {}, onLeave() {}, on() {}, send() {},
+    onDisconnect() {}, onReconnect() {}, leave: async () => {},
+  };
+}
+async function connect() {
+  if (ATTRACT || typeof MP === "undefined") return localRoom();
+  try {
+    const mp = await Promise.race([MP.join({ ...MP_CONNECT }), new Promise((_, no) => setTimeout(() => no(new Error("timed out")), 10000))]);
+    window.mp = mp; // the builder calls window.mp.leave() when the page closes
+    return mp;
+  } catch (e) {
+    console.warn("Playing offline:", e && e.message);
+    return localRoom();
+  }
+}
+const parse = (v, fb) => { if (typeof v !== "string") return fb; try { return JSON.parse(v); } catch { return fb; } };
+const memo = new Map();
+/** A shared JSON field, parsed once per change (read-only: never mutate what this returns). */
+function shared(key, fallback) {
+  const raw = S.shared[key], m = memo.get(key);
+  if (m && m.raw === raw) return m.v;
+  const v = parse(raw, fallback); memo.set(key, { raw, v }); return v;
+}
+let net = null, S = { entities: { players: {} }, shared: {} }, dropped = false;
+const seenHb = new Map();
+function livePlayers() {
+  const now = performance.now(), out = [];
+  for (const [id, p] of Object.entries(S.entities.players || {})) {
+    const s = seenHb.get(id);
+    if (!s || s.hb !== p.hb) seenHb.set(id, { hb: p.hb, at: now });
+    if (id === net.sessionId || now - seenHb.get(id).at < 3000) out.push(id);
+  }
+  return out.sort();
+}
+/** Never while my own loop is stalled (a frozen or background tab), nor for 0.7s after it wakes:
+ *  the room moved on without me, so the newer state lands first and I carry on from it. */
+const isHost = () => livePlayers()[0] === net.sessionId && performance.now() - host.wokeAt > 700 && performance.now() - host.frameAt < 1000;
+const isBot = (id) => id[0] === "@"; // bot ids look like "@3"; sessionIds never have an @
+
+// ── WORDS ───────────────────────────────────────────────────────────────────────────
+const DICT = new Set(WORDS);
+/** A listed word, or a listed word + s / es / ies (cats, boxes, berries). */
+function isWord(w) {
+  if (w.length < 3) return false;
+  if (DICT.has(w)) return true;
+  const plain = (b) => DICT.has(b) && !(b.length > 4 && /(ed|ing)$/.test(b));
+  if (w.endsWith("ies") && plain(w.slice(0, -3) + "y")) return true;
+  if (w.endsWith("es") && /(s|x|z|ch|sh)$/.test(w.slice(0, -2)) && plain(w.slice(0, -2))) return true;
+  return w.endsWith("s") && !/(s|x|z|ch|sh|y)$/.test(w.slice(0, -1)) && plain(w.slice(0, -1)) || (w.endsWith("ys") && plain(w.slice(0, -1)) && /[aeiou]ys$/.test(w));
+}
+/** Every 2- and 3-letter chunk, with how many listed words contain it: the prompt pool. */
+const CHUNKS = (() => {
+  const count = new Map();
+  for (const w of WORDS) {
+    const seen = new Set();
+    for (let len = 2; len <= 3; len++) for (let i = 0; i + len <= w.length; i++) seen.add(w.slice(i, i + len));
+    for (const s of seen) count.set(s, (count.get(s) || 0) + 1);
+  }
+  return [...count].filter(([s]) => /^[a-z]+$/.test(s));
+})();
+/** A prompt for turn k: common chunks early, rarer ones as the game goes on. */
+function pickPrompt(k, last) {
+  const thr = Math.max(CONFIG.promptHard, CONFIG.promptEasy - k * CONFIG.hardenPerTurn);
+  const pool = CHUNKS.filter(([s, n]) => n >= thr && n <= thr * 6 && s !== last);
+  return (pool[Math.floor(Math.random() * pool.length)] || ["ing"])[0];
+}
+/** Why a word doesn't count for this prompt, or "" if it does. */
+function whyNot(w, prompt, used) {
+  if (!/^[a-z]+$/.test(w)) return "Letters only";
+  if (!w.includes(prompt)) return `It needs ${prompt.toUpperCase()}`;
+  if (used.has(w)) return `${w.toUpperCase()} was already used`;
+  if (!isWord(w)) return `${w.toUpperCase()} isn't in the word list`;
+  return "";
+}
+
+// ── GAME (HOST) ─────────────────────────────────────────────────────────────────────
+const host = { last: null, frameAt: 0, wokeAt: -1e9, bot: null, usedLast: null, btLast: "" };
+/** The game as state has it, or the host's own newer write that hasn't come back yet. `v` only goes up. */
+function game() {
+  const g = shared("game", null);
+  return host.last && isHost() && (!g || host.last.v > g.v) ? host.last : g;
+}
+function writeGame(g) { g = { ...g, v: (game()?.v ?? 0) + 1 }; host.last = g; net.setShared("game", JSON.stringify(g)); return g; }
+/** The words played this game (a Set), from `used` (or the host's newer copy). */
+function usedWords(g) {
+  const u = host.usedLast && isHost() && host.usedLast.g === g.id ? host.usedLast : shared("used", null);
+  return new Set(u && u.g === g.id && u.w ? u.w.split(" ") : []);
+}
+function writeUsed(g, set) {
+  let w = [...set].join(" ");
+  while (w.length > 1900) w = w.slice(w.indexOf(" ") + 1); // keep under the 2048 limit (very long games forget the oldest)
+  host.usedLast = { g: g.id, w }; net.setShared("used", JSON.stringify(host.usedLast));
+}
+const rand = (a, b) => a + Math.random() * (b - a);
+const alive = (g) => g.seats.map((_, i) => i).filter((i) => g.lives[i] > 0);
+const nextAlive = (g, from) => { for (let s = 1; s <= g.seats.length; s++) { const i = (from + s) % g.seats.length; if (g.lives[i] > 0) return i; } return from; };
+
+/** A new game: a lobby countdown with everyone here and bots up to the seats. */
+function newGame(id) {
+  const people = livePlayers().slice(0, CONFIG.maxSeats), names = [...BOT_NAMES].sort(() => Math.random() - 0.5);
+  const used = new Set(people.map(colorOf)), free = COLORS.filter((c) => !used.has(c));
+  const seats = [...people.map((id) => [id, nameOf(id).slice(0, 12), colorOf(id)]), ...Array.from({ length: Math.max(0, CONFIG.seats - people.length) }, (_, i) => ["@" + (i + 1), names[i], free[i] || COLORS[i]])];
+  const n = seats.length;
+  writeUsed({ id }, new Set());
+  return writeGame({ id, phase: "lobby", seats, lives: Array(n).fill(CONFIG.lives), let: Array(n).fill(""), wc: Array(n).fill(0), best: null,
+    turn: 0, k: 0, prompt: "", turnAt: 0, fuseAt: 0, endsAt: Date.now() + CONFIG.lobbyMs, last: null, bang: null, win: -1 });
+}
+/** People who arrive during the lobby take a bot's seat (or a new one, up to maxSeats). */
+function seatLatecomers(g) {
+  const fresh = livePlayers().filter((id) => !g.seats.some((s) => s[0] === id));
+  if (!fresh.length) return g;
+  const seats = g.seats.map((s) => [...s]), lives = [...g.lives], lt = [...g.let], wc = [...g.wc];
+  for (const id of fresh) {
+    const seat = [id, nameOf(id).slice(0, 12), colorOf(id)], bot = seats.findIndex((s) => isBot(s[0]));
+    if (bot >= 0) seats[bot] = seat;
+    else if (seats.length < CONFIG.maxSeats) { seats.push(seat); lives.push(CONFIG.lives); lt.push(""); wc.push(0); }
+  }
+  return writeGame({ ...g, seats, lives, let: lt, wc });
+}
+/** A fresh bomb (random hidden fuse) in front of seat `turn`. */
+function newBomb(g, turn, t) {
+  const fuse = rand(CONFIG.fuseMin, CONFIG.fuseMax) * 1000;
+  return writeGame({ ...g, phase: "play", turn, k: g.k + 1, prompt: pickPrompt(g.k, g.prompt), turnAt: t, fuseAt: t + fuse });
+}
+
+function hostTick() {
+  let g = game();
+  const t = Date.now();
+  if (!g) g = newGame(1);
+  if (g.phase === "lobby") { g = seatLatecomers(g); if (t >= g.endsAt) newBomb(g, Math.floor(Math.random() * g.seats.length), t); return; }
+  if (g.phase === "results") { if (t >= g.endsAt) newGame(g.id + 1); return; }
+  if (g.phase === "boom") {
+    if (t < g.endsAt) return;
+    const left = alive(g);
+    if (left.length <= 1) return void writeGame({ ...g, phase: "results", win: left.length ? left[0] : -1, endsAt: t + CONFIG.resultsMs });
+    return void newBomb(g, nextAlive(g, g.turn), t);
+  }
+  // play
+  g = dropLeavers(g, t);
+  if (g.phase !== "play") return;
+  if (t >= g.fuseAt) return void explode(g, t); // an overdue bomb pops at once (e.g. after a host change)
+  botTurn(g, t);
+}
+/** Players who closed their tab are out. If it was their turn, the bomb moves on without a bang. */
+function dropLeavers(g, t) {
+  const live = new Set(livePlayers()), gone = alive(g).filter((i) => !isBot(g.seats[i][0]) && !live.has(g.seats[i][0]));
+  if (!gone.length) return g;
+  const lives = g.lives.map((n, i) => (gone.includes(i) ? 0 : n));
+  g = writeGame({ ...g, lives });
+  if (alive(g).length <= 1) return writeGame({ ...g, phase: "results", win: alive(g)[0] ?? -1, endsAt: t + CONFIG.resultsMs });
+  return gone.includes(g.turn) ? newBomb(g, nextAlive(g, g.turn), t) : g;
+}
+function explode(g, t) {
+  const lives = [...g.lives]; lives[g.turn] = Math.max(0, lives[g.turn] - 1);
+  writeGame({ ...g, phase: "boom", lives, bang: { n: (g.bang?.n || 0) + 1, i: g.turn }, endsAt: t + CONFIG.boomMs });
+}
+/** Check an answer for turn k from seat i. Good: the bomb moves on. Bad: say why in `last`. */
+function applyWord(i, k, raw) {
+  const g = game(), t = Date.now();
+  if (!g || g.phase !== "play" || g.turn !== i || g.k !== k || t >= g.fuseAt) return;
+  const w = String(raw || "").toLowerCase().trim().slice(0, 24), used = usedWords(g), why = whyNot(w, g.prompt, used);
+  if (why) return void writeGame({ ...g, last: { k, i, w, ok: false, why } });
+  used.add(w); writeUsed(g, used);
+  // bonus letters: use every one for an extra life
+  let lt = new Set(g.let[i] + w.toUpperCase()), lives = [...g.lives], bonus = false;
+  lt = [...lt].filter((ch) => CONFIG.bonusLetters.includes(ch)).sort().join("");
+  if (lt.length >= CONFIG.bonusLetters.length) { lt = ""; bonus = lives[i] < CONFIG.maxLives; lives[i] = Math.min(CONFIG.maxLives, lives[i] + 1); }
+  const lets = [...g.let]; lets[i] = lt;
+  const wc = [...g.wc]; wc[i]++;
+  const best = !g.best || w.length > g.best.w.length ? { i, w } : g.best;
+  const next = nextAlive(g, i);
+  writeGame({ ...g, lives, let: lets, wc, best, last: { k, i, w, ok: true, b: bonus }, turn: next, k: g.k + 1, prompt: pickPrompt(g.k, g.prompt), turnAt: t, fuseAt: Math.max(g.fuseAt, t + CONFIG.minTurn * 1000) });
+}
+/** The bot whose turn it is thinks, types its word letter by letter into `bt`, then submits it. */
+function botTurn(g, t) {
+  const seat = g.seats[g.turn];
+  if (!isBot(seat[0])) return;
+  const key = g.id + ":" + g.k;
+  if (!host.bot || host.bot.key !== key) host.bot = { key, ...planBot(g, CONFIG.botMiss), at: t + rand(CONFIG.botThinkMin, CONFIG.botThinkMax) * (ATTRACT ? 0.5 : 1) };
+  const b = host.bot;
+  if (!b.word || t < b.at) return;
+  const n = Math.min(b.word.length, Math.floor(((t - b.at) / 1000) * CONFIG.botCps * (ATTRACT ? 1.5 : 1)));
+  const s = b.word.slice(0, n), bt = JSON.stringify({ g: g.id, k: g.k, s });
+  if (bt !== host.btLast) { host.btLast = bt; net.setShared("bt", bt); }
+  if (n < b.word.length || t < b.at + (b.word.length / CONFIG.botCps) * 1000 + 250) return;
+  applyWord(g.turn, g.k, b.word);
+  if (b.blunder) Object.assign(host.bot, planBot(game(), CONFIG.botMiss / 3), { at: t + rand(700, 1600) }); // shrug, try again
+}
+/** What a bot will type: a real word with the letters (shorter ones more often), or now and then a blunder. */
+function planBot(g, missChance) {
+  const used = usedWords(g), p = g.prompt, fits = WORDS.filter((w) => w.includes(p) && !used.has(w));
+  if (!fits.length) return { word: "", blunder: false }; // stumped: the bomb will pop
+  fits.sort((a, b) => a.length - b.length);
+  if (Math.random() < missChance + g.k * 0.004) { // harder prompts, more blunders: a word already played, or a typo
+    const old = [...used].find((w) => w.includes(p)), w = fits[Math.floor(Math.random() * fits.length)], cut = 1 + Math.floor(Math.random() * (w.length - 1));
+    const typo = w.slice(0, cut) + w.slice(cut + 1);
+    return { word: old && Math.random() < 0.5 ? old : !isWord(typo) && typo.length >= 3 ? typo : p + "ble", blunder: true };
+  }
+  return { word: fits[Math.floor(Math.pow(Math.random(), 1.6) * fits.length)], blunder: false };
+}
+const playAgain = (g) => { if (g.phase === "results") writeGame({ ...g, endsAt: Math.min(g.endsAt, Date.now() + 1500) }); };
+
+// ── MY TURN ─────────────────────────────────────────────────────────────────────────
+let myName = "", myColor = COLORS[0];
+try { myName = localStorage.getItem("mpa-name") || ""; } catch {}
+if (!myName) myName = ["Witty", "Quick", "Clever", "Brave", "Snappy", "Zippy"][Math.floor(Math.random() * 6)] + " " + ["Speller", "Scribe", "Owl", "Fox", "Typist", "Poet"][Math.floor(Math.random() * 6)];
+const nameOf = (id) => (id === net.sessionId ? myName : String(S.entities.players[id]?.n || "Player"));
+const colorOf = (id) => (id === net.sessionId ? myColor : S.entities.players[id]?.c || "#ccc");
+const mySeat = (g) => g.seats.findIndex((s) => s[0] === net.sessionId);
+const myTurn = (g) => g && g.phase === "play" && g.turn === mySeat(g) && g.lives[g.turn] > 0;
+const input = document.getElementById("word");
+let typedFor = "", lastTySend = 0, tyPending = false;
+/** Publish what I'm typing (about 8 times a second) so everyone sees it appear. */
+function publishTyping(force) {
+  const g = game();
+  if (!g || !myTurn(g)) return;
+  if (!force && performance.now() - lastTySend < 120) { tyPending = true; return; }
+  lastTySend = performance.now(); tyPending = false;
+  net.me.set("ty", JSON.stringify({ g: g.id, k: g.k, s: input.value.toLowerCase().slice(0, 24) }));
+}
+input.addEventListener("input", () => { input.value = input.value.replace(/[^a-zA-Z]/g, ""); unlockAudio(); publishTyping(false); });
+input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
+document.getElementById("go").addEventListener("pointerdown", (e) => { e.preventDefault(); submit(); input.focus(); });
+let pendingK = -1;
+function submit() {
+  const g = game();
+  unlockAudio();
+  if (!myTurn(g)) return;
+  const w = input.value.toLowerCase().trim();
+  if (!w) return;
+  const why = whyNot(w, g.prompt, usedWords(g));
+  publishTyping(true);
+  if (why) return void flashBad(why); // the host would say the same: save the trip
+  pendingK = g.k;
+  if (isHost()) applyWord(g.turn, g.k, w); else net.send("word", { g: g.id, k: g.k, w });
+}
+function flashBad(why) { input.classList.remove("bad"); void input.offsetWidth; input.classList.add("bad"); sfx("buzz"); showHint(why, "bad"); }
+// ?attract: the autopilot answers like a quick bot, typing into the box.
+const auto = { key: "", word: "", at: 0 };
+function autopilot(g) {
+  if (!ATTRACT || !myTurn(g)) return;
+  const key = g.id + ":" + g.k, now = performance.now();
+  if (auto.key !== key) { auto.key = key; input.value = ""; auto.word = planBot(g, 0).word; auto.at = now + rand(500, 1300); }
+  if (!auto.word || now < auto.at) return;
+  const n = Math.min(auto.word.length, Math.floor(((now - auto.at) / 1000) * 10));
+  if (input.value.length !== n) input.value = auto.word.slice(0, n).toUpperCase();
+  if (n >= auto.word.length && now > auto.at + auto.word.length * 100 + 250) { auto.word = ""; submit(); }
+}
+
+// ── CIRCLE ──────────────────────────────────────────────────────────────────────────
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+let W = 0, H = 0;
+function fit() { const dpr = Math.min(2, devicePixelRatio || 1); W = cv.clientWidth; H = cv.clientHeight; cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
+addEventListener("resize", fit); addEventListener("orientationchange", fit);
+const fx = { aim: -Math.PI / 2, shake: 0, flash: 0, parts: [], pops: [], seen: { bang: 0, lastK: -1, game: -1 } };
+/** Where seat i sits: round the circle, with me at the bottom. */
+function seatPos(g, i) {
+  const n = g.seats.length, me = Math.max(0, mySeat(g)), a = Math.PI / 2 + ((i - me) / n) * Math.PI * 2, { rx, ry } = radii();
+  return { x: W / 2 + Math.cos(a) * rx, y: H / 2 + Math.sin(a) * ry, a };
+}
+/** The circle's size: as wide as fits, a little taller on a tall phone screen. */
+function radii() {
+  const rx = Math.min(W * 0.42, H * 0.7);
+  return { rx, ry: Math.max(40, Math.min(H / 2 - 72, rx * 1.3)) }; // room above and below for names and hearts
+}
+/** What seat i has typed this turn (me: my box; bots: `bt`; others: their `ty`). */
+function typedBy(g, i) {
+  const id = g.seats[i][0];
+  if (id === net.sessionId) return input.value.toLowerCase();
+  const ty = isBot(id) ? shared("bt", null) : parse(S.entities.players[id]?.ty, null);
+  return ty && ty.g === g.id && ty.k === g.k ? String(ty.s || "") : "";
+}
+function drawCircle(dt, g, now) {
+  ctx.clearRect(0, 0, W, H);
+  if (!g || !W) return;
+  fx.shake *= Math.exp(-dt * 6); fx.flash = Math.max(0, fx.flash - dt * 2.5);
+  ctx.save();
+  if (fx.shake > 0.5) ctx.translate((Math.random() - 0.5) * fx.shake, (Math.random() - 0.5) * fx.shake);
+  const cx = W / 2, cy = H / 2, { rx, ry } = radii(), R = Math.min(rx, ry * 1.5), av = Math.max(18, Math.min(34, R * 0.2)), bombR = Math.max(26, Math.min(64, R * 0.34, (ry - av) / 1.3));
+  // the table
+  ctx.fillStyle = "#ffffff08"; ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, 7); ctx.fill();
+  ctx.strokeStyle = "#ffffff14"; ctx.lineWidth = 2; ctx.stroke();
+  const playing = g.phase === "play" || g.phase === "boom";
+  // the fuse line from the bomb to whoever holds it
+  if (playing) {
+    const p = seatPos(g, g.turn), target = Math.atan2(p.y - cy, p.x - cx);
+    fx.aim += Math.atan2(Math.sin(target - fx.aim), Math.cos(target - fx.aim)) * Math.min(1, dt * 10);
+    const reach = Math.max(bombR + 16, Math.hypot(p.x - cx, p.y - cy) - av - 74), ex = cx + Math.cos(fx.aim) * reach, ey = cy + Math.sin(fx.aim) * reach;
+    ctx.strokeStyle = "#ffd23f55"; ctx.lineWidth = 6; ctx.setLineDash([2, 10]); ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(cx + Math.cos(fx.aim) * bombR, cy + Math.sin(fx.aim) * bombR); ctx.lineTo(ex, ey); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = "#ffd23f"; ctx.beginPath(); ctx.moveTo(ex + Math.cos(fx.aim) * 10, ey + Math.sin(fx.aim) * 10); ctx.lineTo(ex + Math.cos(fx.aim + 2.4) * 10, ey + Math.sin(fx.aim + 2.4) * 10); ctx.lineTo(ex + Math.cos(fx.aim - 2.4) * 10, ey + Math.sin(fx.aim - 2.4) * 10); ctx.fill();
+  }
+  // the seats
+  g.seats.forEach((s, i) => {
+    const p = seatPos(g, i), out = g.lives[i] <= 0 && g.phase !== "lobby", turn = playing && g.turn === i, me = s[0] === net.sessionId;
+    ctx.globalAlpha = out ? 0.35 : 1;
+    if (turn) { ctx.fillStyle = "#ffd23f33"; ctx.beginPath(); ctx.arc(p.x, p.y, av + 10 + Math.sin(now / 150) * 3, 0, 7); ctx.fill(); }
+    ctx.fillStyle = me ? myColor : s[2]; ctx.beginPath(); ctx.arc(p.x, p.y, av, 0, 7); ctx.fill();
+    ctx.strokeStyle = me ? "#fff" : "#00000055"; ctx.lineWidth = me ? 3 : 2; ctx.stroke();
+    ctx.fillStyle = "#1a1530"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.font = `900 ${Math.round(av * 0.9)}px system-ui, sans-serif`;
+    ctx.fillText(out ? "✕" : (me ? myName : s[1])[0] || "?", p.x, p.y + 1);
+    // name + hearts
+    ctx.fillStyle = "#fff"; ctx.font = `700 ${Math.round(Math.max(11, av * 0.42))}px system-ui, sans-serif`;
+    const up = Math.sin(p.a) < -0.2, nameY = up ? p.y - av - Math.max(30, av * 0.95) : p.y + av + 12; // labels sit on the outside of the circle
+    ctx.fillText(me ? "You" : s[1], p.x, nameY);
+    ctx.font = `${Math.round(Math.max(10, av * 0.4))}px system-ui, sans-serif`;
+    ctx.fillText(g.lives[i] > 0 ? "❤️".repeat(g.lives[i]) : g.phase === "lobby" ? "" : "out", p.x, nameY + Math.max(14, av * 0.55));
+    ctx.globalAlpha = 1;
+    // what they're typing (the holder), with the prompt letters picked out
+    if (turn && g.phase === "play") drawTyped(typedBy(g, i), g.prompt, p, av, cx, cy);
+  });
+  // the bomb
+  const left = (g.fuseAt - Date.now()) / 1000, hot = playing && g.phase === "play" ? Math.max(0, Math.min(1, 1 - left / 3)) : 0;
+  const pulse = 1 + (playing ? Math.max(0, Math.sin(now / (180 - hot * 120))) * (0.04 + hot * 0.08) : 0);
+  if (g.phase !== "boom" || Date.now() > g.endsAt - CONFIG.boomMs + 500) {
+    ctx.save(); ctx.translate(cx, cy); ctx.scale(pulse, pulse);
+    const grad = ctx.createRadialGradient(-bombR * 0.35, -bombR * 0.4, bombR * 0.1, 0, 0, bombR);
+    grad.addColorStop(0, hot > 0.5 ? "#7a2a2a" : "#5a5470"); grad.addColorStop(1, "#141020");
+    ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(0, 0, bombR, 0, 7); ctx.fill();
+    ctx.fillStyle = "#2a2440"; ctx.fillRect(-bombR * 0.22, -bombR * 1.12, bombR * 0.44, bombR * 0.24);
+    ctx.strokeStyle = "#c8a46a"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(0, -bombR * 1.1); ctx.quadraticCurveTo(bombR * 0.3, -bombR * 1.5, bombR * 0.55, -bombR * 1.35); ctx.stroke();
+    if (playing) { ctx.fillStyle = Math.random() < 0.5 ? "#ffd23f" : "#ff7b2e"; ctx.beginPath(); ctx.arc(bombR * 0.55, -bombR * 1.35, 4 + Math.random() * 4, 0, 7); ctx.fill(); }
+    ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    const txt = g.phase === "lobby" ? String(Math.max(0, Math.ceil((g.endsAt - Date.now()) / 1000))) : g.phase === "results" ? "🏆" : g.prompt.toUpperCase();
+    ctx.font = `900 ${Math.round(bombR * (txt.length > 2 ? 0.62 : 0.78))}px system-ui, sans-serif`; ctx.fillText(txt, 0, 2);
+    ctx.restore();
+  }
+  // sparks, letters, the blast
+  for (let i = fx.parts.length - 1; i >= 0; i--) {
+    const q = fx.parts[i]; q.life -= dt; if (q.life <= 0) { fx.parts.splice(i, 1); continue; }
+    q.vy += (q.g || 0) * dt; q.x += q.vx * dt; q.y += q.vy * dt;
+    ctx.globalAlpha = Math.min(1, q.life * 2); ctx.fillStyle = q.c; ctx.beginPath(); ctx.arc(q.x, q.y, q.r, 0, 7); ctx.fill();
+  }
+  for (let i = fx.pops.length - 1; i >= 0; i--) {
+    const q = fx.pops[i]; q.life -= dt; if (q.life <= 0) { fx.pops.splice(i, 1); continue; }
+    ctx.globalAlpha = Math.min(1, q.life * 1.5); ctx.fillStyle = q.c; ctx.font = `900 ${q.size}px system-ui, sans-serif`; ctx.textAlign = "center";
+    ctx.fillText(q.text, q.x, q.y - (1.4 - q.life) * 30);
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+  if (fx.flash > 0) { ctx.fillStyle = `rgba(255,220,150,${fx.flash * 0.5})`; ctx.fillRect(0, 0, W, H); }
+}
+/** The holder's typing, in a bubble between them and the bomb; the prompt's letters glow gold. */
+function drawTyped(text, prompt, p, av, cx, cy) {
+  const s = (text || "").toUpperCase(), P = prompt.toUpperCase(), at = s.indexOf(P);
+  ctx.font = `900 ${Math.round(Math.max(16, av * 0.75))}px system-ui, sans-serif`;
+  const shown = s || "…", w = Math.max(40, ctx.measureText(shown).width + 20), h = Math.max(28, av * 1.1);
+  // seats at the top or bottom get the bubble beside them (the bomb is in the way); the rest, toward the middle
+  const side = Math.abs(Math.cos(p.a)) < 0.5, d = Math.hypot(cx - p.x, cy - p.y) || 1, k = Math.min(0.6, (av + 10 + w / 2) / d);
+  const bx = side ? p.x + av + 12 + w / 2 : p.x + (cx - p.x) * k, by = side ? p.y : p.y + (cy - p.y) * k;
+  ctx.fillStyle = "#ffffffee"; roundRect(bx - w / 2, by - h / 2, w, h, 10); ctx.fill();
+  ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  let x = bx - w / 2 + 10;
+  for (let k = 0; k < shown.length; k++) {
+    ctx.fillStyle = at >= 0 && k >= at && k < at + P.length ? "#d98a00" : "#1a1530";
+    ctx.fillText(shown[k], x, by + 1); x += ctx.measureText(shown[k]).width;
+  }
+}
+function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+function sparks(x, y, colors, n, speed, g = 0) { for (let i = 0; i < n; i++) { const a = Math.random() * 7, s = speed * rand(0.3, 1); fx.parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, r: rand(2, 5), c: colors[i % colors.length], life: rand(0.4, 0.9), g }); } }
+/** Things everyone notices in state (never from events): a new game, a word, a bang. */
+function watchState(g) {
+  if (g.id !== fx.seen.game) { Object.assign(fx.seen, { game: g.id, bang: g.bang?.n || 0, lastK: g.last?.k ?? -1, lastOk: g.last?.ok, lastW: g.last?.w }); $("over").hidden = true; input.value = ""; }
+  const L = g.last;
+  if (L && (L.k !== fx.seen.lastK || L.ok !== fx.seen.lastOk || L.w !== fx.seen.lastW)) {
+    fx.seen.lastK = L.k; fx.seen.lastOk = L.ok; fx.seen.lastW = L.w;
+    const p = seatPos(g, L.i), mine = g.seats[L.i][0] === net.sessionId;
+    if (L.ok) {
+      sparks(p.x, p.y, ["#45e08a", "#fff", "#ffd23f"], 18, 160);
+      fx.pops.push({ text: L.w.toUpperCase(), x: p.x, y: p.y - 40, c: "#45e08a", size: 22, life: 1.4 });
+      if (L.b) fx.pops.push({ text: "+❤️ alphabet bonus!", x: p.x, y: p.y - 70, c: "#ffd23f", size: 18, life: 1.8 });
+      sfx(L.b ? "bonus" : "ding");
+      if (mine) { input.value = ""; showHint(L.b ? "Alphabet done: +1 life!" : `${L.w.toUpperCase()}: nice! The bomb moves on.`, "ok"); }
+    } else {
+      fx.pops.push({ text: "✗ " + L.w.toUpperCase(), x: p.x, y: p.y - 40, c: "#ff5468", size: 18, life: 1.2 });
+      if (mine) flashBad(L.why);
+    }
+  }
+  if (g.bang && g.bang.n !== fx.seen.bang) {
+    fx.seen.bang = g.bang.n;
+    const p = seatPos(g, g.bang.i), mine = g.seats[g.bang.i][0] === net.sessionId;
+    sparks(W / 2, H / 2, ["#ff7b2e", "#ffd23f", "#fff", "#555"], 60, 420, 200); sparks(p.x, p.y, ["#ff5468", "#fff"], 20, 200);
+    fx.shake = 14; fx.flash = 1; sfx("boom");
+    fx.pops.push({ text: g.lives[g.bang.i] > 0 ? "−❤️" : "OUT!", x: p.x, y: p.y - 40, c: "#ff5468", size: 26, life: 1.6 });
+    if (mine) { input.value = ""; showHint(g.lives[g.bang.i] > 0 ? "BOOM! You lost a life." : "BOOM! You're out. Watch the rest.", "bad"); }
+  }
+}
+
+// ── HUD & RESULTS ───────────────────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+let hintText = "", hintClass = "", hintUntil = 0;
+const showHint = (s, cls = "", ms = 2400) => { hintText = s; hintClass = cls; hintUntil = performance.now() + ms; };
+const alphaEls = [...CONFIG.bonusLetters].map((ch) => { const i = document.createElement("i"); i.textContent = ch; $("alpha").appendChild(i); return i; });
+const alphaNote = document.createElement("span"); alphaNote.textContent = "= +1 ❤️"; $("alpha").appendChild(alphaNote);
+const startedAt = performance.now();
+function hud(g) {
+  const me = mySeat(g), turn = myTurn(g), t = Date.now(), holder = g.seats[g.turn];
+  $("status").textContent = g.phase === "lobby" ? `Starting in ${Math.max(0, Math.ceil((g.endsAt - t) / 1000))}…` : g.phase === "results" ? "Game over"
+    : turn ? `Your turn! Use ${g.prompt.toUpperCase()}` : `${holder[0] === net.sessionId ? "You" : holder[1]} ${g.phase === "boom" ? "blew up!" : "has the bomb"}`;
+  const lets = me >= 0 ? g.let[me] : "";
+  alphaEls.forEach((el) => el.classList.toggle("on", lets.includes(el.textContent)));
+  input.classList.toggle("turn", turn);
+  input.placeholder = turn ? `A word with ${g.prompt.toUpperCase()}…` : me < 0 ? "You play next game" : g.lives[me] <= 0 && g.phase !== "lobby" ? "You're out this game" : "Wait for the bomb…";
+  $("go").disabled = !turn;
+  if (turn && pendingK !== g.k && !ATTRACT && document.activeElement !== input && !matchMedia("(pointer: coarse)").matches) input.focus();
+  if (turn && typedFor !== g.id + ":" + g.k) { typedFor = g.id + ":" + g.k; sfx("turn"); }
+  if (tyPending) publishTyping(false);
+  const pnow = performance.now();
+  $("hint").className = pnow < hintUntil ? hintClass : "";
+  $("hint").textContent = ATTRACT ? "" : pnow < hintUntil ? hintText : pnow - startedAt < 20000 ? "Type a word with the bomb's letters, then Enter. No repeats!" : "";
+  const n = livePlayers().length;
+  $("net").textContent = ATTRACT ? "" : net.offline ? "Offline: playing with bots" : dropped ? "Reconnecting…" : `Online · ${n} player${n === 1 ? "" : "s"}${isHost() ? " · you run the bomb" : ""}`;
+  $("over").hidden = !(g.phase === "results" && t - (g.endsAt - CONFIG.resultsMs) > 1600) || ATTRACT;
+  if (g.phase === "results") results(g, me, t);
+}
+let board = null, boardFor = -1;
+function results(g, me, t) {
+  const win = g.win >= 0 ? g.seats[g.win] : null, iWon = g.win >= 0 && g.win === me;
+  $("title").textContent = iWon ? "You survived the bomb! 🏆" : win ? `${win[1]} wins! 🏆` : "Nobody survived!";
+  $("best").textContent = g.best ? `Longest word: ${g.best.w.toUpperCase()} (${g.best.i === me ? "you" : g.seats[g.best.i][1]})` : "";
+  const order = g.seats.map((s, i) => i).sort((a, b) => (b === g.win) - (a === g.win) || g.lives[b] - g.lives[a] || g.wc[b] - g.wc[a]);
+  $("results").innerHTML = order.map((i) => `<li class="${i === me ? "me" : ""}">${esc(i === me ? "You" : g.seats[i][1])}${i === g.win ? " 🏆" : ""}<span>${g.wc[i]} word${g.wc[i] === 1 ? "" : "s"}</span></li>`).join("");
+  $("next").textContent = `Next game in ${Math.max(0, Math.ceil((g.endsAt - t) / 1000))}s`;
+  if (boardFor !== g.id) { boardFor = g.id; showBoard(iWon); if (iWon) sfx("win"); }
+}
+function showBoard(won) {
+  const list = $("board");
+  if (!board) { list.innerHTML = "<li>Leaderboards need a connection.</li>"; return; }
+  list.innerHTML = "<li>Loading…</li>";
+  (won ? board.submit(1, "inc").catch(() => null) : Promise.resolve()).then(() => board.top(10)).then(({ entries }) => {
+    list.innerHTML = entries.length ? entries.map((e) => `<li>${esc(e.username || "Player")}<span>${e.score} 🏆</span></li>`).join("") : "<li>No wins yet. Be the first.</li>";
+  }).catch(() => { list.innerHTML = "<li>Couldn't load the leaderboard.</li>"; });
+}
+$("again").onclick = () => { const g = game(); if (!g || g.phase !== "results") return; if (isHost()) playAgain(g); else net.send("again", {}); $("over").hidden = true; };
+
+// ── SOUND ───────────────────────────────────────────────────────────────────────────
+let audio = null, noise = null, lastTickAt = 0;
+function unlockAudio() {
+  if (audio || ATTRACT) return;
+  try { audio = new AudioContext(); noise = audio.createBuffer(1, audio.sampleRate * 0.8, audio.sampleRate); const d = noise.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; } catch {}
+}
+function sfx(kind) {
+  if (!audio) return;
+  const t = audio.currentTime, gain = audio.createGain();
+  if (kind === "boom") {
+    const src = audio.createBufferSource(), f = audio.createBiquadFilter(); src.buffer = noise; f.type = "lowpass"; f.frequency.setValueAtTime(1400, t); f.frequency.exponentialRampToValueAtTime(70, t + 0.7);
+    gain.gain.setValueAtTime(0.6, t); gain.gain.exponentialRampToValueAtTime(0.001, t + 0.8); src.connect(f).connect(gain).connect(audio.destination); src.start(t); src.stop(t + 0.8); return;
+  }
+  const o = audio.createOscillator();
+  const [type, f0, f1, len, vol] = { tick: ["square", 1700, 1500, 0.03, 0.04], ding: ["triangle", 660, 1320, 0.18, 0.18], buzz: ["square", 150, 110, 0.18, 0.06], turn: ["triangle", 440, 880, 0.15, 0.12], bonus: ["triangle", 520, 1560, 0.5, 0.2], win: ["triangle", 520, 1040, 0.6, 0.2] }[kind];
+  o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + len);
+  gain.gain.setValueAtTime(vol, t); gain.gain.exponentialRampToValueAtTime(0.001, t + len);
+  o.connect(gain).connect(audio.destination); o.start(t); o.stop(t + len + 0.02);
+}
+/** The bomb ticks, faster in its last seconds. */
+function tickSound(g) {
+  if (!g || g.phase !== "play") return;
+  const left = (g.fuseAt - Date.now()) / 1000, every = left < 3 ? 160 : 520;
+  if (performance.now() - lastTickAt > every) { lastTickAt = performance.now(); sfx("tick"); }
+}
+
+// ── MAIN LOOP ───────────────────────────────────────────────────────────────────────
+/** Two people joined at once in one color: the one with the higher sessionId picks a free one. Bots' colors count as taken. */
+function fixColor() {
+  const others = Object.entries(S.entities.players || {}).filter(([id]) => id !== net.sessionId), g = game();
+  const botColors = g ? g.seats.filter((s) => isBot(s[0])).map((s) => s[2]) : [];
+  if (!others.some(([id, p]) => p.c === myColor && id < net.sessionId) && !botColors.includes(myColor)) return;
+  const taken = new Set([...others.map(([, p]) => p.c), ...botColors]), free = COLORS.find((c) => !taken.has(c));
+  if (free) { myColor = free; net.me.set("c", free); }
+}
+$("name").value = myName;
+$("name").addEventListener("change", () => {
+  myName = $("name").value.trim().slice(0, 16) || myName;
+  try { localStorage.setItem("mpa-name", myName); } catch {}
+  net && net.me.set("n", myName);
+});
+if (ATTRACT) { $("name").style.display = "none"; Object.assign(CONFIG, { lobbyMs: 600, boomMs: 1400, resultsMs: 2500, fuseMin: 4, fuseMax: 8, minTurn: 2.2, botThinkMin: 500, botThinkMax: 1500, botMiss: 0.2 }); }
+let last = performance.now(), lastHb = 0, lastTick = 0;
+function frame(now) {
+  requestAnimationFrame(frame);
+  const t0 = performance.now(); // not `now`: the first frame after a freeze can be stamped from before it ended
+  if (host.frameAt && t0 - host.frameAt > 1000) { host.wokeAt = t0; host.last = null; host.usedLast = null; host.bot = null; } // woke from a stall: forget my host copy (see isHost)
+  host.frameAt = t0;
+  const dt = Math.max(0, Math.min(0.05, (t0 - last) / 1000)); last = t0;
+  if (t0 - lastHb > 1000) { lastHb = t0; net.me.set("hb", Date.now()); fixColor(); }
+  if (t0 - lastTick > 100) { // rules and the HUD 10 times a second
+    lastTick = t0;
+    if (isHost()) hostTick();
+    const g = game();
+    if (g) { watchState(g); autopilot(g); hud(g); tickSound(g); }
+  }
+  drawCircle(dt, game(), t0);
+}
+
+(async function start() {
+  net = await connect();
+  net.onState((st) => { S = st; });
+  net.on("word", (m, from) => { const g = game(); if (isHost() && g && m && typeof m === "object" && m.g === g.id) applyWord(g.seats.findIndex((s) => s[0] === from), m.k, m.w); });
+  net.on("again", () => { const g = game(); if (isHost() && g) playAgain(g); });
+  net.onDisconnect(() => { dropped = true; $("net").textContent = "Reconnecting…"; });
+  net.onReconnect(() => { dropped = false; });
+  if (!net.offline && typeof MP !== "undefined") board = MP.auth({ key: MP_CONNECT.key, apiUrl: MP_CONNECT.apiUrl }).leaderboard(CONFIG.board);
+  const taken = new Set(Object.entries(S.entities.players || {}).filter(([id]) => id !== net.sessionId).map(([, p]) => p.c));
+  myColor = COLORS.find((c) => !taken.has(c)) || COLORS[Math.floor(Math.random() * COLORS.length)];
+  net.me.set({ n: myName, c: myColor, hb: Date.now() });
+  fit();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

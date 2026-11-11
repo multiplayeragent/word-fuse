@@ -1,0 +1,21 @@
+{
+  "name": "Word Fuse",
+  "genre": "word",
+  "dim": "2D",
+  "mode": "Party",
+  "players": "2–12",
+  "hook": "Type a word with the letters before the bomb pops.",
+  "how": "The bomb shows two or three letters: on your turn, type any word that contains them and hit Enter to pass it on. No repeats, two lives each, last one standing wins.",
+  "controls": "Type on the keyboard (or your phone's keyboard) and press Enter or GO",
+  "uses": [
+    ["Leaderboard", "Games won, all time, shown on the results card."],
+    ["Bots", "Bots fill the circle, type at a human pace and sometimes blunder."],
+    ["Host-run rules", "The host's browser checks every word and runs the hidden fuse; if it leaves, the next player takes over."],
+    ["Live sync", "Everyone watches the letters appear as the player with the bomb types."]
+  ],
+  "ideas": [
+    "Make the bomb a ticking alarm clock in a spooky castle",
+    "Give a bonus life for words longer than 8 letters",
+    "Add a category round where every word must be an animal"
+  ]
+}
