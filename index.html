@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <title>Word Fuse</title>
 <style>
   :root { --bg: #14121f; --panel: #241f3a; --ink: #fff; --dim: #b9b2d8; --gold: #ffd23f; --ok: #45e08a; --bad: #ff5468; }
@@ -41,6 +41,7 @@
   .card ol { margin: 0; padding-left: 24px; font-size: 14px; }
   .card li span { float: right; font-variant-numeric: tabular-nums; }
   .card li.me { color: var(--gold); font-weight: 700; }
+  .card li.note { list-style: none; opacity: .75; }
   .card p { margin: 10px 0; font-size: 13px; opacity: .85; }
   button.again { width: 100%; min-height: 48px; border: 0; border-radius: 12px; background: var(--gold); color: #2a1f00; font: 800 17px system-ui, sans-serif; cursor: pointer; }
   @media (max-width: 520px) { #name { width: 100px; } header h1 { font-size: 18px; } #alpha { gap: 2px; } #alpha i { width: 14px; font-size: 10px; } #alpha span { display: none; } }
@@ -49,7 +50,7 @@
 </head>
 <body>
 <div id="app">
-  <header><h1>Word <b>Bomb</b></h1><span id="status"></span><input id="name" maxlength="16" placeholder="Your name" aria-label="Your name"></header>
+  <header><h1>Word <b>Fuse</b></h1><span id="status"></span><input id="name" maxlength="16" placeholder="Your name" aria-label="Your name"></header>
   <div id="stage"><canvas id="cv"></canvas></div>
   <div id="alpha"></div>
   <div id="row"><input id="word" maxlength="24" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go" placeholder="Type a word…" aria-label="Your word"><button id="go">GO</button></div>
@@ -59,14 +60,15 @@
 <div id="over" hidden><div class="card">
   <h2 id="title">Game over</h2><p id="best"></p>
   <ol id="results"></ol>
-  <h3>Most wins</h3><ol id="board"><li>Loading…</li></ol>
+  <h3>Most wins</h3><ol id="board"><li class="note">Loading…</li></ol>
   <p id="next"></p>
   <button class="again" id="again">Play again</button>
 </div></div>
 <script>
 /* ═══ WORD LIST (used by the main script below) ═════════════════════════════════════════
- * Every word the game accepts, lowercase, 3–8 letters. Plurals don't need listing: isWord()
- * also takes a listed word + "s" / "es" / "ies". The prompts on the bomb ("ing", "tr") are
+ * Every word the game accepts, lowercase, 3–8 letters. Plurals and regular endings don't need
+ * listing: isWord() also takes a listed word + "s" / "es" / "ies", and + "ing" / "ed" / "er" /
+ * "est" / "ly" (walking, baked, stopped, tried, bigger, happily). The prompts on the bomb ("ing", "tr") are
  * picked from letters that appear in enough of these words. Add or remove words freely.
  */
 const WORDS = `
@@ -114,7 +116,7 @@ high hike hill hilt hind hint hire hiss hive hoax hold hole holy home hone honk 
 horn hose host hour howl hued huff huge hula hulk hull hump hung hunk hunt hurl hurt hush husk hymn hype icon
 idea idle idly idol inch info inky into iris iron isle itch item jack jade jail jazz jean jeep jeer jerk jest
 jibe jinx jock join joke jolt jowl judo jump junk jury just jute keel keen keep kelp kept kick kiln kilo kilt
-kind king kink kiss kite kiwi knee knew knit knob knot know lace lack lacy lady laid lain lair lake lamb lame
+kind king kiss kite kiwi knee knew knit knob knot know lace lack lacy lady laid lain lair lake lamb lame
 lamp land lane lard lark lash lass last late lava lawn laze lazy lead leaf leak lean leap leek leer left lend
 lens lent less lest levy liar lice lick lied lien lieu life lift like lilt lily limb lime limp line link lint
 lion lisp list live load loaf loan lobe lock loft logo loin lone long look loom loon loop loot lord lore lose
@@ -454,11 +456,25 @@ const isBot = (id) => id[0] === "@"; // bot ids look like "@3"; sessionIds never
 
 // ── WORDS ───────────────────────────────────────────────────────────────────────────
 const DICT = new Set(WORDS);
-/** A listed word, or a listed word + s / es / ies (cats, boxes, berries). */
+const listed = (b) => b.length >= 3 && DICT.has(b);
+/** A listed word with a regular ending: walk → walking/walked/walker, bake → baking, stop → stopped,
+ *  try → tried, happy → happily, gentle → gently. */
+function grown(w) {
+  for (const end of ["ing", "ed", "er", "est", "ly"]) {
+    if (!w.endsWith(end)) continue;
+    const b = w.slice(0, -end.length);
+    if (listed(b) || listed(b + "e")) return true;
+    if (b.length > 3 && b.at(-1) === b.at(-2) && listed(b.slice(0, -1))) return true; // running, bigger
+    if (end !== "ing" && b.endsWith("i") && listed(b.slice(0, -1) + "y")) return true; // tried, happier, happily
+    if (end === "ly" && listed(w.slice(0, -1) + "e")) return true; // gently, simply
+  }
+  return false;
+}
+/** A listed word, a grown one (above), or either + s / es / ies (cats, boxes, berries, walkers). */
 function isWord(w) {
   if (w.length < 3) return false;
-  if (DICT.has(w)) return true;
-  const plain = (b) => DICT.has(b) && !(b.length > 4 && /(ed|ing)$/.test(b));
+  if (DICT.has(w) || grown(w)) return true;
+  const plain = (b) => DICT.has(b) || grown(b);
   if (w.endsWith("ies") && plain(w.slice(0, -3) + "y")) return true;
   if (w.endsWith("es") && /(s|x|z|ch|sh)$/.test(w.slice(0, -2)) && plain(w.slice(0, -2))) return true;
   return w.endsWith("s") && !/(s|x|z|ch|sh|y)$/.test(w.slice(0, -1)) && plain(w.slice(0, -1)) || (w.endsWith("ys") && plain(w.slice(0, -1)) && /[aeiou]ys$/.test(w));
@@ -511,8 +527,10 @@ const alive = (g) => g.seats.map((_, i) => i).filter((i) => g.lives[i] > 0);
 const nextAlive = (g, from) => { for (let s = 1; s <= g.seats.length; s++) { const i = (from + s) % g.seats.length; if (g.lives[i] > 0) return i; } return from; };
 
 /** A new game: a lobby countdown with everyone here and bots up to the seats. */
+/** Live people whose name has arrived (a seat keeps the name it was given). */
+const seatable = () => livePlayers().filter((id) => id === net.sessionId || S.entities.players[id]?.n);
 function newGame(id) {
-  const people = livePlayers().slice(0, CONFIG.maxSeats), names = [...BOT_NAMES].sort(() => Math.random() - 0.5);
+  const people = seatable().slice(0, CONFIG.maxSeats), names = [...BOT_NAMES].sort(() => Math.random() - 0.5);
   const used = new Set(people.map(colorOf)), free = COLORS.filter((c) => !used.has(c));
   const seats = [...people.map((id) => [id, nameOf(id).slice(0, 12), colorOf(id)]), ...Array.from({ length: Math.max(0, CONFIG.seats - people.length) }, (_, i) => ["@" + (i + 1), names[i], free[i] || COLORS[i]])];
   const n = seats.length;
@@ -520,11 +538,12 @@ function newGame(id) {
   return writeGame({ id, phase: "lobby", seats, lives: Array(n).fill(CONFIG.lives), let: Array(n).fill(""), wc: Array(n).fill(0), best: null,
     turn: 0, k: 0, prompt: "", turnAt: 0, fuseAt: 0, endsAt: Date.now() + CONFIG.lobbyMs, last: null, bang: null, win: -1 });
 }
-/** People who arrive during the lobby take a bot's seat (or a new one, up to maxSeats). */
+/** People who arrive during the lobby take a bot's seat (or a new one, up to maxSeats); renamed people get their new name. */
 function seatLatecomers(g) {
-  const fresh = livePlayers().filter((id) => !g.seats.some((s) => s[0] === id));
-  if (!fresh.length) return g;
-  const seats = g.seats.map((s) => [...s]), lives = [...g.lives], lt = [...g.let], wc = [...g.wc];
+  const fresh = seatable().filter((id) => !g.seats.some((s) => s[0] === id));
+  const renamed = g.seats.some((s) => !isBot(s[0]) && S.entities.players[s[0]]?.n && (s[1] !== nameOf(s[0]).slice(0, 12) || s[2] !== colorOf(s[0])));
+  if (!fresh.length && !renamed) return g;
+  const seats = g.seats.map((s) => (isBot(s[0]) || !S.entities.players[s[0]]?.n ? [...s] : [s[0], nameOf(s[0]).slice(0, 12), colorOf(s[0])])), lives = [...g.lives], lt = [...g.let], wc = [...g.wc];
   for (const id of fresh) {
     const seat = [id, nameOf(id).slice(0, 12), colorOf(id)], bot = seats.findIndex((s) => isBot(s[0]));
     if (bot >= 0) seats[bot] = seat;
@@ -650,6 +669,7 @@ function submit() {
   if (isHost()) applyWord(g.turn, g.k, w); else net.send("word", { g: g.id, k: g.k, w });
 }
 function flashBad(why) { input.classList.remove("bad"); void input.offsetWidth; input.classList.add("bad"); sfx("buzz"); showHint(why, "bad"); }
+input.addEventListener("animationend", () => input.classList.remove("bad")); // the red shake, then back to normal
 // ?attract: the autopilot answers like a quick bot, typing into the box.
 const auto = { key: "", word: "", at: 0 };
 function autopilot(g) {
@@ -762,7 +782,8 @@ function drawTyped(text, prompt, p, av, cx, cy) {
   const shown = s || "…", w = Math.max(40, ctx.measureText(shown).width + 20), h = Math.max(28, av * 1.1);
   // seats at the top or bottom get the bubble beside them (the bomb is in the way); the rest, toward the middle
   const side = Math.abs(Math.cos(p.a)) < 0.5, d = Math.hypot(cx - p.x, cy - p.y) || 1, k = Math.min(0.6, (av + 10 + w / 2) / d);
-  const bx = side ? p.x + av + 12 + w / 2 : p.x + (cx - p.x) * k, by = side ? p.y : p.y + (cy - p.y) * k;
+  let bx = side ? p.x + av + 12 + w / 2 : p.x + (cx - p.x) * k, by = side ? p.y : p.y + (cy - p.y) * k;
+  bx = Math.max(w / 2 + 4, Math.min(W - w / 2 - 4, bx)); // long words stay on screen
   ctx.fillStyle = "#ffffffee"; roundRect(bx - w / 2, by - h / 2, w, h, 10); ctx.fill();
   ctx.textAlign = "left"; ctx.textBaseline = "middle";
   let x = bx - w / 2 + 10;
@@ -826,7 +847,7 @@ function hud(g) {
   $("hint").textContent = ATTRACT ? "" : pnow < hintUntil ? hintText : pnow - startedAt < 20000 ? "Type a word with the bomb's letters, then Enter. No repeats!" : "";
   const n = livePlayers().length;
   $("net").textContent = ATTRACT ? "" : net.offline ? "Offline: playing with bots" : dropped ? "Reconnecting…" : `Online · ${n} player${n === 1 ? "" : "s"}${isHost() ? " · you run the bomb" : ""}`;
-  $("over").hidden = !(g.phase === "results" && t - (g.endsAt - CONFIG.resultsMs) > 1600) || ATTRACT;
+  $("over").hidden = !(g.phase === "results" && t - (g.endsAt - CONFIG.resultsMs) > 1600) || ATTRACT || againFor === g.id;
   if (g.phase === "results") results(g, me, t);
 }
 let board = null, boardFor = -1;
@@ -841,17 +862,19 @@ function results(g, me, t) {
 }
 function showBoard(won) {
   const list = $("board");
-  if (!board) { list.innerHTML = "<li>Leaderboards need a connection.</li>"; return; }
-  list.innerHTML = "<li>Loading…</li>";
+  if (!board) { list.innerHTML = "<li class=\"note\">Leaderboards need a connection.</li>"; return; }
+  list.innerHTML = "<li class=\"note\">Loading…</li>";
   (won ? board.submit(1, "inc").catch(() => null) : Promise.resolve()).then(() => board.top(10)).then(({ entries }) => {
-    list.innerHTML = entries.length ? entries.map((e) => `<li>${esc(e.username || "Player")}<span>${e.score} 🏆</span></li>`).join("") : "<li>No wins yet. Be the first.</li>";
-  }).catch(() => { list.innerHTML = "<li>Couldn't load the leaderboard.</li>"; });
+    list.innerHTML = entries.length ? entries.map((e) => `<li>${esc(e.username || "Player")}<span>${e.score} 🏆</span></li>`).join("") : "<li class=\"note\">No wins yet. Be the first.</li>";
+  }).catch(() => { list.innerHTML = "<li class=\"note\">Couldn't load the leaderboard.</li>"; });
 }
-$("again").onclick = () => { const g = game(); if (!g || g.phase !== "results") return; if (isHost()) playAgain(g); else net.send("again", {}); $("over").hidden = true; };
+let againFor = -1; // the game whose results I closed with "Play again" (the card stays shut until the next game)
+$("again").onclick = () => { const g = game(); if (!g || g.phase !== "results") return; if (isHost()) playAgain(g); else net.send("again", {}); againFor = g.id; $("over").hidden = true; };
 
 // ── SOUND ───────────────────────────────────────────────────────────────────────────
 let audio = null, noise = null, lastTickAt = 0;
 function unlockAudio() {
+  if (audio && audio.state === "suspended") audio.resume().catch(() => {});
   if (audio || ATTRACT) return;
   try { audio = new AudioContext(); noise = audio.createBuffer(1, audio.sampleRate * 0.8, audio.sampleRate); const d = noise.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; } catch {}
 }
@@ -868,6 +891,7 @@ function sfx(kind) {
   gain.gain.setValueAtTime(vol, t); gain.gain.exponentialRampToValueAtTime(0.001, t + len);
   o.connect(gain).connect(audio.destination); o.start(t); o.stop(t + len + 0.02);
 }
+addEventListener("pointerdown", unlockAudio); addEventListener("keydown", unlockAudio); // browsers start sound only after a tap or key
 /** The bomb ticks, faster in its last seconds. */
 function tickSound(g) {
   if (!g || g.phase !== "play") return;
